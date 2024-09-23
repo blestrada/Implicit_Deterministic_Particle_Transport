@@ -14,13 +14,10 @@ def run():
     print("Tally step ({:4d})".format(time.step))
     print("-" * 79)
 
-    # Start-of-step radiation energy density
-    radnrgdens = np.zeros(mesh.ncells)
-    radnrgdens[:] = phys.a * mesh.radtemp[:] ** 4
-
     # Temperature increase
     nrg_emitted = phys.c * mesh.sigma_a * phys.a *  mesh.temp ** 4 * time.dt * mesh.dx  
-    #print(f' nrg emitted = {nrg_emitted}')
+    # print(f' nrg emitted = {nrg_emitted}')
+    # print(f' nrg absorbed during time-step = {mesh.nrgdep}')
     nrg_inc = np.zeros(mesh.ncells)
     nrg_inc[:] = mesh.nrgdep[:] - nrg_emitted[:]
     #print(f' nrginc = {nrg_inc}')

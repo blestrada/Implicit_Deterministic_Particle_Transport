@@ -8,9 +8,17 @@ Nxi = -1
 
 n_max = -1
 
-# Global list of particle properties
+# Particle Lists
+
+# Global list of particles
 particle_prop = []
+
+# Global list of particles scattered from particle_prop
 scattered_particles = []
+
+# Global list of particles scattered from scattered_particles
+particles_to_be_scattered = []
+
 
 # Census grid
 census_grid = []

@@ -54,7 +54,7 @@ def echo():
     @details Prints out spatial mesh for debugging.
     @return  None
     """
-    print("Mesh:")
-    print(mesh.ncells, mesh.xsize, mesh.dx)
-    print(mesh.cellpos)
-    print(mesh.nodepos)
+    print(f"Mesh:")
+    print(f'mesh.ncells = {mesh.ncells}, mesh.xsize = {mesh.xsize}, mesh.dx = {mesh.dx}')
+    print(f'mesh.cellpos = {mesh.cellpos}')
+    print(f'mesh.nodepos = {mesh.nodepos}')

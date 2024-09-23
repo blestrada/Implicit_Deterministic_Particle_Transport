@@ -12,14 +12,14 @@ import imc_global_time_data as time
 def run():
     """Advance particles over a time-step"""
     # Create angle and scattering arrays
+    emission_times = time.time + (np.arange(ptcl.Nt) + 0.5) * time.dt / ptcl.Nt
     angles = -1.0 + (np.arange(ptcl.Nmu) + 0.5) * 2 / ptcl.Nmu
     xi_values = (np.arange(ptcl.Nxi) + 0.5) / ptcl.Nxi
 
     # Create local storage for the energy deposited this time-step
     mesh.nrgdep[:] = 0.0
 
-    # Create local storage for the scattered energy this time-step (used for implicit scattering)
-    mesh.nrgscattered[:] = 0.0
+    
 
     endsteptime = time.time + time.dt
 
@@ -28,7 +28,6 @@ def run():
     exp = np.exp
     log = np.log
     nrgdep = [0.0] * mesh.ncells
-    nrgscattered = [0.0] * mesh.ncells
     mesh_nodepos = mesh.nodepos
     phys_c = phys.c
     top_cell = mesh.ncells - 1
@@ -47,7 +46,7 @@ def run():
 
         # Get particle's initial properties at start of time-step
         (ttt, icell, xpos, mu, xi, nrg, startnrg) = ptcl.particle_prop[iptcl][1:8]
-        
+       
         #print(f'ttt = {ttt}, icell = {icell}, xpos = {xpos}, mu = {mu}, xi = {xi}, nrg = {nrg}, startnrg = {startnrg}')
   
         startnrg = 0.01 * startnrg
@@ -92,7 +91,27 @@ def run():
 
             if ptcl.scattering == 'implicit':
                 # Calculate energy to be scattered
-                nrgscattered[icell] += (nrg - newnrg) * mesh_sigma_s[icell] / mesh_sigma_t[icell]
+                nrg_scattered = (nrg - newnrg) * mesh_sigma_s[icell] / mesh_sigma_t[icell]
+
+                # Calculate average position of scatter
+                average_length_of_scatter = (1 / mesh_sigma_t[icell]) * \
+                                   (1 - (1 + (mesh_sigma_t[icell]) * dist) * exp(-(mesh_sigma_a[icell] + mesh_sigma_s[icell]) * dist)) / \
+                                   (1 - exp(-(mesh_sigma_a[icell] + mesh_sigma_s[icell]) * dist))
+
+                scatter_position = xpos + mu * average_length_of_scatter
+                # print(f'scatter_position = {scatter_position}')
+                # print(f' xpos = {xpos}')
+                # print(f' dist = {dist}')
+
+                # Make some particles with energy-weight equal to the energy scattered.
+                energy_weight_per_ptcl = nrg_scattered / ptcl.Nmu * ptcl.Nt
+
+                for angle in angles:
+                    for emission_time in emission_times:
+                        # particle list in the form: [origin, ttt, icell, xpos, mu, xi, nrg, startnrg]
+                        ptcl.scattered_particles.append([icell, emission_time, icell, scatter_position, angle, -1, energy_weight_per_ptcl, energy_weight_per_ptcl])
+                        
+
 
             # Boundary treatment
             if dist == dist_b:
@@ -162,45 +181,26 @@ def run():
     # End loop over particles
 
     mesh.nrgdep[:] += nrgdep[:]
-    mesh.nrgscattered[:] += nrgscattered[:]
 
     if ptcl.scattering == 'implicit':
         do_implicit_scattering()
-
+    
     #print(f'Energy deposited in time-step = {nrgdep}')
 
 
 def do_implicit_scattering():
     iterations = 0
+    emission_times = time.time + (np.arange(ptcl.Nt) + 0.5) * time.dt / ptcl.Nt
+    angles = -1.0 + (np.arange(ptcl.Nmu) + 0.5) * 2 / ptcl.Nmu
     
-    while np.all(mesh.nrgscattered > 1E-9):
-
-        # Make source particles
-        for icell in range(mesh.ncells):
-            # Create position, angle, time arrays
-            x_positions = mesh.nodepos[icell] + (np.arange(ptcl.Nx) + 0.5) * mesh.dx / ptcl.Nx
-            angles = -1.0 + (np.arange(ptcl.Nmu) + 0.5) * 2 / ptcl.Nmu
-            emission_times = time.time + (np.arange(ptcl.Nt) + 0.5) * time.dt / ptcl.Nt
-
-            # Assign energy-weights
-            n_source_ptcls = ptcl.Nx * ptcl.Nmu * ptcl.Nt
-            nrg = mesh.nrgscattered[icell] / n_source_ptcls
-            startnrg = nrg
-
-            # Create particles and add them to list of scattered particles
-            xi = -1  # value not used, but needed to keep particle list size the same for different modes.
-            origin = icell
-            for xpos in x_positions:
-                for mu in angles:
-                    for ttt in emission_times:
-                        ptcl.scattered_particles.append([origin, ttt, icell, xpos, mu, xi, nrg, startnrg])
-        
+    # Ensure scattering is done until only a little bit of scattered energy is left in the particles.
+    while not np.all([particle[6] < 1E-5 for particle in ptcl.scattered_particles]):
+        print(f' iteration number = {iterations}')
         # Advance the particles
         endsteptime = time.time + time.dt
         # optimizations
         exp = np.exp
         nrgdep = [0.0] * mesh.ncells
-        nrgscattered = [0.0] * mesh.ncells
         mesh_nodepos = mesh.nodepos
         phys_c = phys.c
         top_cell = mesh.ncells - 1
@@ -238,7 +238,26 @@ def do_implicit_scattering():
                 nrgdep[icell] += (nrg - newnrg) * mesh_sigma_a[icell] / mesh_sigma_t[icell]
 
                 # Calculate energy to be scattered
-                nrgscattered[icell] += (nrg - newnrg) * mesh_sigma_s[icell] / mesh_sigma_t[icell]
+                nrg_scattered = (nrg - newnrg) * mesh_sigma_s[icell] / mesh_sigma_t[icell]
+
+                # Calculate average position of scatter
+                average_length_of_scatter = (1 / mesh_sigma_t[icell]) * \
+                                   (1 - (1 + (mesh_sigma_t[icell]) * dist) * exp(-(mesh_sigma_a[icell] + mesh_sigma_s[icell]) * dist)) / \
+                                   (1 - exp(-(mesh_sigma_a[icell] + mesh_sigma_s[icell]) * dist))
+
+                scatter_position = xpos + mu * average_length_of_scatter
+                # print(f'scatter_position = {scatter_position}')
+                # print(f' xpos = {xpos}')
+                # print(f' dist = {dist}')
+
+                # Make some particles with energy-weight equal to the energy scattered.
+                energy_weight_per_ptcl = nrg_scattered / ptcl.Nmu * ptcl.Nt
+
+                for angle in angles:
+                    for emission_time in emission_times:
+                        # particle list in the form: [origin, ttt, icell, xpos, mu, xi, nrg, startnrg]
+                        ptcl.particles_to_be_scattered.append([icell, emission_time, icell, scatter_position, angle, -1, energy_weight_per_ptcl, energy_weight_per_ptcl])
+
 
                 # Boundary treatment
                 if dist == dist_b:
@@ -289,9 +308,8 @@ def do_implicit_scattering():
         # End loop over particles
 
         # print(f'nrgdep after 1 iteration = {nrgdep}')
-        # Update global energy banks
+        # Update global energy bank
         mesh.nrgdep[:] += nrgdep[:]
-        mesh.nrgscattered[:] = nrgscattered[:]
 
         # Move scattered particles to the global particle list
         for entry in ptcl.scattered_particles:
@@ -305,10 +323,16 @@ def do_implicit_scattering():
             startnrg = nrg
 
             # Append updated particle entry to the particle_prop
-            ptcl.particle_prop.append([origin, ttt, icell, xpos, mu, xi, nrg, startnrg])
+            ptcl.particle_prop.append([origin, ttt, int(icell), xpos, mu, xi, nrg, startnrg])
 
         # Remove old particles from scattered particles.
         ptcl.scattered_particles = []
+
+        # Move new particles from particles_to_be_scattered to scattered_particles
+        ptcl.scattered_particles[:] = ptcl.particles_to_be_scattered[:]
+
+        # Remove particles from particles_to_be_scattered
+        ptcl.particles_to_be_scattered = []
 
         # Increment iterations
         # print(f'iteration completed.')
